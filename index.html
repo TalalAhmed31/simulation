@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M/M/1 Simulation (Exponential CDF - Minutes)</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 30px; }
+    label { margin-right: 15px; }
+    input { padding: 5px; width: 80px; }
+    button { padding: 8px 15px; margin-top: 10px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    table, th, td { border: 1px solid #333; }
+    th, td { padding: 8px; text-align: center; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+
+  <h2>M/M/1 Queue Simulation (Exponential CDF — Minutes)</h2>
+
+  <label>λ (per min): <input type="number" id="lambda" value="2.25" step="0.01"></label>
+  <label>μ (per min): <input type="number" id="mu" value="4.5" step="0.01"></label>
+  <br>
+  <button onclick="runSimulation()">Run Simulation</button>
+
+  <p id="cp-summary"></p>
+
+  <table id="results-table" class="hidden">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Arrival (min)</th>
+        <th>Service (min)</th>
+        <th>Start (min)</th>
+        <th>End (min)</th>
+        <th>Wait (min)</th>
+        <th>Turnaround (min)</th>
+      </tr>
+    </thead>
+    <tbody id="results-body"></tbody>
+  </table>
+
+  <div id="summary" class="hidden">
+    <h3>Simulation Summary</h3>
+    <p id="final-stats"></p>
+  </div>
+
+<script>
+function getExponential(rate) {
+  const rn = Math.random();
+  return { rn, value: -1 / rate * Math.log(rn) };
+}
+
+function runSimulation() {
+  const lambda = parseFloat(document.getElementById('lambda').value);
+  const mu = parseFloat(document.getElementById('mu').value);
+
+  if (isNaN(lambda) || isNaN(mu) || lambda <= 0 || mu <= 0) {
+    alert("Enter valid positive values for λ and μ");
+    return;
+  }
+
+  let customers = [];
+  let arrivalTime = 0;
+  let prevEndTime = 0;
+  let id = 1;
+
+  console.clear();
+  console.log("=== Exponential CDF Log (in minutes) ===");
+
+  while (true) {
+    const interArrival = getExponential(lambda);
+    const service = getExponential(mu);
+
+    arrivalTime += interArrival.value;
+    const cp = 1 - Math.exp(-lambda * arrivalTime);
+
+    console.log(`Customer ${id}: ArrivalTime = ${arrivalTime.toFixed(6)} min, CP = ${cp.toFixed(6)}`);
+
+    if (cp >= 1) break;
+
+    const start = Math.max(arrivalTime, prevEndTime);
+    const end = start + service.value;
+
+    customers.push({
+      id,
+      arrival: arrivalTime,
+      service: service.value,
+      start,
+      end,
+      wait: start - arrivalTime,
+      turnaround: end - arrivalTime
+    });
+
+    prevEndTime = end;
+    id++;
+  }
+
+  renderTable(customers);
+  displaySummary(customers, arrivalTime);
+}
+
+function renderTable(customers) {
+  const tbody = document.getElementById('results-body');
+  tbody.innerHTML = '';
+
+  customers.forEach(c => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${c.id}</td>
+      <td>${c.arrival.toFixed(6)}</td>
+      <td>${c.service.toFixed(6)}</td>
+      <td>${c.start.toFixed(6)}</td>
+      <td>${c.end.toFixed(6)}</td>
+      <td>${c.wait.toFixed(6)}</td>
+      <td>${c.turnaround.toFixed(6)}</td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  document.getElementById('results-table').classList.remove('hidden');
+}
+
+function displaySummary(customers, finalArrivalTime) {
+  const totalTime = customers[customers.length - 1].end;
+  const avgWait = customers.reduce((a, b) => a + b.wait, 0) / customers.length;
+  const avgService = customers.reduce((a, b) => a + b.service, 0) / customers.length;
+  const avgTAT = customers.reduce((a, b) => a + b.turnaround, 0) / customers.length;
+
+  document.getElementById('cp-summary').innerText = `Simulation ran until CP = 1.0 (Last Arrival ≈ ${finalArrivalTime.toFixed(6)} min)`;
+
+  document.getElementById('final-stats').innerHTML = `
+    <p>Total Simulation Time: ${totalTime.toFixed(6)} minutes</p>
+    <p>Total Customers: ${customers.length}</p>
+    <p>Average Wait Time: ${avgWait.toFixed(6)} min</p>
+    <p>Average Service Time: ${avgService.toFixed(6)} min</p>
+    <p>Average Turnaround Time: ${avgTAT.toFixed(6)} min</p>
+  `;
+  document.getElementById('summary').classList.remove('hidden');
+}
+</script>
+
+</body>
+</html>
