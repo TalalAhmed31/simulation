@@ -76,7 +76,7 @@ function runSimulation() {
     const cp = 1 - Math.exp(-lambda * arrivalTime);
 
     // Stop BEFORE logging/adding this customer if CP ≥ 1
-    if (cp >= 1) {
+    if (cp > 0.999999) {
       console.log(`STOPPED: ArrivalTime = ${arrivalTime.toFixed(6)} min, CP = ${cp.toFixed(6)} >= 1`);
       break;
     }
