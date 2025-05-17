@@ -75,9 +75,13 @@ function runSimulation() {
     arrivalTime += interArrival.value;
     const cp = 1 - Math.exp(-lambda * arrivalTime);
 
-    console.log(`Customer ${id}: ArrivalTime = ${arrivalTime.toFixed(6)} min, CP = ${cp.toFixed(6)}`);
+    // Stop BEFORE logging/adding this customer if CP ≥ 1
+    if (cp >= 1) {
+      console.log(`STOPPED: ArrivalTime = ${arrivalTime.toFixed(6)} min, CP = ${cp.toFixed(6)} >= 1`);
+      break;
+    }
 
-    if (cp >= 1) break;
+    console.log(`Customer ${id}: ArrivalTime = ${arrivalTime.toFixed(6)} min, CP = ${cp.toFixed(6)}`);
 
     const start = Math.max(arrivalTime, prevEndTime);
     const end = start + service.value;
@@ -99,6 +103,7 @@ function runSimulation() {
   renderTable(customers);
   displaySummary(customers, arrivalTime);
 }
+
 
 function renderTable(customers) {
   const tbody = document.getElementById('results-body');
