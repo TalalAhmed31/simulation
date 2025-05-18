@@ -1,30 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>M/M/1 Simulation (Exponential CDF - Minutes)</title>
+  <meta charset="UTF-8" />
+  <title>M/M/c Real-Time Simulation</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 30px; }
     label { margin-right: 15px; }
     input { padding: 5px; width: 80px; }
-    button { padding: 8px 15px; margin-top: 10px; margin-bottom: 20px; }
+    button { padding: 8px 15px; margin-right: 10px; }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     table, th, td { border: 1px solid #333; }
     th, td { padding: 8px; text-align: center; }
     .hidden { display: none; }
+    #log { white-space: pre-wrap; background: #f3f3f3; padding: 10px; border: 1px dashed #999; margin-top: 20px; max-height: 300px; overflow-y: scroll; }
   </style>
 </head>
 <body>
+  <h2>M/M/c Real-Time Simulation (Pause & Resume + Debug Log)</h2>
 
-  <h2>M/M/1 Queue Simulation (Exponential CDF — Minutes)</h2>
-
-  <label>λ (per min): <input type="number" id="lambda" value="2.25" step="0.01"></label>
-  <label>μ (per min): <input type="number" id="mu" value="4.5" step="0.01"></label>
-  <br>
-  <button onclick="runSimulation()">Run Simulation</button>
+  <label>λ (per min): <input type="number" id="lambda" value="5" step="0.01"></label>
+  <label>μ (per min): <input type="number" id="mu" value="3" step="0.01"></label>
+  <label>Servers (c): <input type="number" id="servers" value="2" step="1"></label>
+  <br><br>
+  <button id="startBtn">Start</button>
+  <button id="pauseBtn">Pause</button>
 
   <p id="cp-summary"></p>
-
   <table id="results-table" class="hidden">
     <thead>
       <tr>
@@ -45,70 +46,66 @@
     <p id="final-stats"></p>
   </div>
 
+  <div id="log"></div>
+
 <script>
+let lambda, mu, servers;
+let customers = [], arrivalTime = 0, id = 1;
+let serverEndTimes = [];
+let simulationInterval = null;
+let simulationRunning = false;
+
 function getExponential(rate) {
   const rn = Math.random();
-  return { rn, value: -1 / rate * Math.log(rn) };
+  return -1 / rate * Math.log(rn);
 }
 
-function runSimulation() {
-  const lambda = parseFloat(document.getElementById('lambda').value);
-  const mu = parseFloat(document.getElementById('mu').value);
+function simulateStep() {
+  const interArrival = getExponential(lambda);
+  const service = getExponential(mu);
+  arrivalTime += interArrival;
+  const cp = 1 - Math.exp(-lambda * arrivalTime);
 
-  if (isNaN(lambda) || isNaN(mu) || lambda <= 0 || mu <= 0) {
-    alert("Enter valid positive values for λ and μ");
-    return;
-  }
-
-  let customers = [];
-  let arrivalTime = 0;
-  let prevEndTime = 0;
-  let id = 1;
-
-  console.clear();
-  console.log("=== Exponential CDF Log (in minutes) ===");
-
-  while (true) {
-    const interArrival = getExponential(lambda);
-    const service = getExponential(mu);
-
-    arrivalTime += interArrival.value;
-    const cp = 1 - Math.exp(-lambda * arrivalTime);
-
-    // Stop BEFORE logging/adding this customer if CP ≥ 1
-    if (cp > 0.999999) {
-      console.log(`STOPPED: ArrivalTime = ${arrivalTime.toFixed(6)} min, CP = ${cp.toFixed(6)} >= 1`);
-      break;
+  // Find earliest available server
+  let earliestServer = 0;
+  let earliestAvailable = serverEndTimes[0];
+  for (let i = 1; i < servers; i++) {
+    if (serverEndTimes[i] < earliestAvailable) {
+      earliestAvailable = serverEndTimes[i];
+      earliestServer = i;
     }
-
-    console.log(`Customer ${id}: ArrivalTime = ${arrivalTime.toFixed(6)} min, CP = ${cp.toFixed(6)}`);
-
-    const start = Math.max(arrivalTime, prevEndTime);
-    const end = start + service.value;
-
-    customers.push({
-      id,
-      arrival: arrivalTime,
-      service: service.value,
-      start,
-      end,
-      wait: start - arrivalTime,
-      turnaround: end - arrivalTime
-    });
-
-    prevEndTime = end;
-    id++;
   }
 
-  renderTable(customers);
-  displaySummary(customers, arrivalTime);
+  const start = Math.max(arrivalTime, serverEndTimes[earliestServer]);
+  const end = start + service;
+  serverEndTimes[earliestServer] = end;
+
+  customers.push({
+    id,
+    arrival: arrivalTime,
+    service,
+    start,
+    end,
+    wait: start - arrivalTime,
+    turnaround: end - arrivalTime,
+    server: earliestServer + 1
+  });
+
+  log(`Customer ${id}: Arrived at ${arrivalTime.toFixed(6)} min, Assigned to Server ${earliestServer + 1}, Start: ${start.toFixed(6)}, End: ${end.toFixed(6)}, CP: ${cp.toFixed(6)}`);
+
+  id++;
+  updateTable();
+
+  if (cp > 0.999999) {
+    stopSimulation();
+    document.getElementById('cp-summary').innerText = `Simulation stopped at CP > 0.999999 (Final Arrival ≈ ${arrivalTime.toFixed(6)} min)`;
+    displaySummary();
+  }
 }
 
-
-function renderTable(customers) {
+function updateTable() {
   const tbody = document.getElementById('results-body');
   tbody.innerHTML = '';
-
   customers.forEach(c => {
     const row = document.createElement('tr');
     row.innerHTML = `
@@ -122,17 +119,14 @@ function renderTable(customers) {
     `;
     tbody.appendChild(row);
   });
-
   document.getElementById('results-table').classList.remove('hidden');
 }
 
-function displaySummary(customers, finalArrivalTime) {
-  const totalTime = customers[customers.length - 1].end;
+function displaySummary() {
+  const totalTime = Math.max(...serverEndTimes);
   const avgWait = customers.reduce((a, b) => a + b.wait, 0) / customers.length;
   const avgService = customers.reduce((a, b) => a + b.service, 0) / customers.length;
   const avgTAT = customers.reduce((a, b) => a + b.turnaround, 0) / customers.length;
-
-  document.getElementById('cp-summary').innerText = `Simulation ran until CP = 1.0 (Last Arrival ≈ ${finalArrivalTime.toFixed(6)} min)`;
 
   document.getElementById('final-stats').innerHTML = `
     <p>Total Simulation Time: ${totalTime.toFixed(6)} minutes</p>
@@ -143,7 +137,45 @@ function displaySummary(customers, finalArrivalTime) {
   `;
   document.getElementById('summary').classList.remove('hidden');
 }
-</script>
 
+function startSimulation() {
+  if (simulationRunning) return;
+
+  lambda = parseFloat(document.getElementById('lambda').value);
+  mu = parseFloat(document.getElementById('mu').value);
+  servers = parseInt(document.getElementById('servers').value);
+
+  if (isNaN(lambda) || isNaN(mu) || isNaN(servers) || lambda <= 0 || mu <= 0 || servers <= 0) {
+    alert("Enter valid positive values for λ, μ, and number of servers");
+    return;
+  }
+
+  if (serverEndTimes.length === 0) {
+    serverEndTimes = Array(servers).fill(0);
+  }
+
+  simulationRunning = true;
+  simulationInterval = setInterval(simulateStep, 300);
+}
+
+function pauseSimulation() {
+  clearInterval(simulationInterval);
+  simulationRunning = false;
+}
+
+function stopSimulation() {
+  clearInterval(simulationInterval);
+  simulationRunning = false;
+}
+
+function log(message) {
+  const logBox = document.getElementById('log');
+  logBox.textContent += message + '\n';
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+document.getElementById('startBtn').addEventListener('click', startSimulation);
+document.getElementById('pauseBtn').addEventListener('click', pauseSimulation);
+</script>
 </body>
 </html>
