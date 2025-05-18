@@ -1,207 +1,51 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title>M/M/c or M/G/c Simulation</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 30px; }
-    label { margin-right: 15px; }
-    input, select { padding: 5px; width: 100px; }
-    button { padding: 8px 15px; margin-right: 10px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    table, th, td { border: 1px solid #333; }
-    th, td { padding: 8px; text-align: center; }
-    .hidden { display: none; }
-    #log { white-space: pre-wrap; background: #f3f3f3; padding: 10px; border: 1px dashed #999; margin-top: 20px; max-height: 300px; overflow-y: scroll; }
-  </style>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h2>M/M/c or M/G/c Real-Time Simulation (Pause & Resume + Debug Log)</h2>
-
-  <label>λ (per min): <input type="number" id="lambda" value="5" step="0.01"></label>
-  <label>μ (per min): <input type="number" id="mu" value="3" step="0.01"></label>
-  <label>Servers (c): <input type="number" id="servers" value="2" step="1"></label>
-  <label>Model: 
-    <select id="model">
-      <option value="MMC">M/M/c</option>
-      <option value="MGC">M/G/c (Uniform Service)</option>
-    </select>
-  </label>
-  <br><br>
-  <button id="startBtn">Start</button>
-  <button id="pauseBtn">Pause</button>
-
-  <p id="cp-summary"></p>
-  <table id="results-table" class="hidden">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Arrival (min)</th>
-        <th>Service (min)</th>
-        <th>Start (min)</th>
-        <th>End (min)</th>
-        <th>Wait (min)</th>
-        <th>Turnaround (min)</th>
-      </tr>
-    </thead>
-    <tbody id="results-body"></tbody>
-  </table>
-
-  <div id="summary" class="hidden">
-    <h3>Simulation Summary</h3>
-    <p id="final-stats"></p>
+  <div class="container">
+    <h2>Queueing Simulation (M/M/c or M/G/c)</h2>
+    <div class="form-group">
+      <label>λ (per min): <input type="number" id="lambda" value="5" step="0.01"></label>
+      <label>μ (per min): <input type="number" id="mu" value="3" step="0.01"></label>
+      <label>Servers (c): <input type="number" id="servers" value="2" step="1"></label>
+      <label>Model:
+        <select id="model">
+          <option value="MMC">M/M/c</option>
+          <option value="MGC">M/G/c (Uniform)</option>
+          <option value="MNC">M/G/c (Normal Service)</option>
+        </select>
+      </label>
+    </div>
+    <div class="buttons">
+      <button id="startBtn">Start</button>
+      <button id="pauseBtn">Pause</button>
+    </div>
+    <p id="cp-summary"></p>
+    <table id="results-table" class="hidden">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Arrival</th>
+          <th>Service</th>
+          <th>Start</th>
+          <th>End</th>
+          <th>Wait</th>
+          <th>Turnaround</th>
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+    <div id="summary" class="hidden">
+      <h3>Simulation Summary</h3>
+      <p id="final-stats"></p>
+    </div>
+    <div id="log"></div>
   </div>
-
-  <div id="log"></div>
-
-<script>
-let lambda, mu, servers, modelType;
-let customers = [], arrivalTime = 0, id = 1;
-let serverEndTimes = [], serverBusyTime = [];
-let simulationInterval = null;
-let simulationRunning = false;
-
-function getExponential(rate) {
-  const rn = Math.random();
-  return -1 / rate * Math.log(rn);
-}
-
-function getUniform(min, max) {
-  return min + Math.random() * (max - min);
-}
-
-function simulateStep() {
-  const interArrival = getExponential(lambda);
-  let service;
-
-  if (modelType === 'MMC') {
-    service = getExponential(mu);
-  } else {
-    service = getUniform(1 / mu, 2 / mu);
-  }
-
-  arrivalTime += interArrival;
-  const cp = 1 - Math.exp(-lambda * arrivalTime);
-
-  let earliestServer = 0;
-  let earliestAvailable = serverEndTimes[0];
-  for (let i = 1; i < servers; i++) {
-    if (serverEndTimes[i] < earliestAvailable) {
-      earliestAvailable = serverEndTimes[i];
-      earliestServer = i;
-    }
-  }
-
-  const start = Math.max(arrivalTime, serverEndTimes[earliestServer]);
-  const end = start + service;
-  serverEndTimes[earliestServer] = end;
-  serverBusyTime[earliestServer] += service;
-
-  customers.push({
-    id,
-    arrival: arrivalTime,
-    service,
-    start,
-    end,
-    wait: start - arrivalTime,
-    turnaround: end - arrivalTime,
-    server: earliestServer + 1
-  });
-
-  log(`Customer ${id}: Arrived at ${arrivalTime.toFixed(6)} min, Assigned to Server ${earliestServer + 1}, Start: ${start.toFixed(6)}, End: ${end.toFixed(6)}, CP: ${cp.toFixed(6)}`);
-
-  id++;
-  updateTable();
-
-  if (cp > 0.999999) {
-    stopSimulation();
-    document.getElementById('cp-summary').innerText = `Simulation stopped at CP > 0.999999 (Final Arrival ≈ ${arrivalTime.toFixed(6)} min)`;
-    displaySummary();
-  }
-}
-
-function updateTable() {
-  const tbody = document.getElementById('results-body');
-  tbody.innerHTML = '';
-  customers.forEach(c => {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>${c.id}</td>
-      <td>${c.arrival.toFixed(6)}</td>
-      <td>${c.service.toFixed(6)}</td>
-      <td>${c.start.toFixed(6)}</td>
-      <td>${c.end.toFixed(6)}</td>
-      <td>${c.wait.toFixed(6)}</td>
-      <td>${c.turnaround.toFixed(6)}</td>
-    `;
-    tbody.appendChild(row);
-  });
-  document.getElementById('results-table').classList.remove('hidden');
-}
-
-function displaySummary() {
-  const totalTime = Math.max(...serverEndTimes);
-  const avgWait = customers.reduce((a, b) => a + b.wait, 0) / customers.length;
-  const avgService = customers.reduce((a, b) => a + b.service, 0) / customers.length;
-  const avgTAT = customers.reduce((a, b) => a + b.turnaround, 0) / customers.length;
-
-  let utilizationText = '<p><strong>Server Utilization:</strong></p>';
-  for (let i = 0; i < servers; i++) {
-    const util = (serverBusyTime[i] / totalTime) * 100;
-    utilizationText += `<p>Server ${i + 1}: ${util.toFixed(2)}%</p>`;
-  }
-
-  document.getElementById('final-stats').innerHTML = `
-    <p>Total Simulation Time: ${totalTime.toFixed(6)} minutes</p>
-    <p>Total Customers: ${customers.length}</p>
-    <p>Average Wait Time: ${avgWait.toFixed(6)} min</p>
-    <p>Average Service Time: ${avgService.toFixed(6)} min</p>
-    <p>Average Turnaround Time: ${avgTAT.toFixed(6)} min</p>
-    ${utilizationText}
-  `;
-  document.getElementById('summary').classList.remove('hidden');
-}
-
-function startSimulation() {
-  if (simulationRunning) return;
-
-  lambda = parseFloat(document.getElementById('lambda').value);
-  mu = parseFloat(document.getElementById('mu').value);
-  servers = parseInt(document.getElementById('servers').value);
-  modelType = document.getElementById('model').value;
-
-  if (isNaN(lambda) || isNaN(mu) || isNaN(servers) || lambda <= 0 || mu <= 0 || servers <= 0) {
-    alert("Enter valid positive values for λ, μ, and number of servers");
-    return;
-  }
-
-  if (serverEndTimes.length === 0) {
-    serverEndTimes = Array(servers).fill(0);
-    serverBusyTime = Array(servers).fill(0);
-  }
-
-  simulationRunning = true;
-  simulationInterval = setInterval(simulateStep, 300);
-}
-
-function pauseSimulation() {
-  clearInterval(simulationInterval);
-  simulationRunning = false;
-}
-
-function stopSimulation() {
-  clearInterval(simulationInterval);
-  simulationRunning = false;
-}
-
-function log(message) {
-  const logBox = document.getElementById('log');
-  logBox.textContent += message + '\n';
-  logBox.scrollTop = logBox.scrollHeight;
-}
-
-document.getElementById('startBtn').addEventListener('click', startSimulation);
-document.getElementById('pauseBtn').addEventListener('click', pauseSimulation);
-</script>
+  <script src="script.js"></script>
 </body>
 </html>
