@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>M/M/c Real-Time Simulation</title>
+  <title>M/M/c or M/G/c Simulation</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 30px; }
     label { margin-right: 15px; }
-    input { padding: 5px; width: 80px; }
+    input, select { padding: 5px; width: 100px; }
     button { padding: 8px 15px; margin-right: 10px; }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     table, th, td { border: 1px solid #333; }
@@ -16,11 +16,17 @@
   </style>
 </head>
 <body>
-  <h2>M/M/c Real-Time Simulation (Pause & Resume + Debug Log)</h2>
+  <h2>M/M/c or M/G/c Real-Time Simulation (Pause & Resume + Debug Log)</h2>
 
   <label>λ (per min): <input type="number" id="lambda" value="5" step="0.01"></label>
   <label>μ (per min): <input type="number" id="mu" value="3" step="0.01"></label>
   <label>Servers (c): <input type="number" id="servers" value="2" step="1"></label>
+  <label>Model: 
+    <select id="model">
+      <option value="MMC">M/M/c</option>
+      <option value="MGC">M/G/c (Uniform Service)</option>
+    </select>
+  </label>
   <br><br>
   <button id="startBtn">Start</button>
   <button id="pauseBtn">Pause</button>
@@ -49,9 +55,9 @@
   <div id="log"></div>
 
 <script>
-let lambda, mu, servers;
+let lambda, mu, servers, modelType;
 let customers = [], arrivalTime = 0, id = 1;
-let serverEndTimes = [];
+let serverEndTimes = [], serverBusyTime = [];
 let simulationInterval = null;
 let simulationRunning = false;
 
@@ -60,13 +66,23 @@ function getExponential(rate) {
   return -1 / rate * Math.log(rn);
 }
 
+function getUniform(min, max) {
+  return min + Math.random() * (max - min);
+}
+
 function simulateStep() {
   const interArrival = getExponential(lambda);
-  const service = getExponential(mu);
+  let service;
+
+  if (modelType === 'MMC') {
+    service = getExponential(mu);
+  } else {
+    service = getUniform(1 / mu, 2 / mu);
+  }
+
   arrivalTime += interArrival;
   const cp = 1 - Math.exp(-lambda * arrivalTime);
 
-  // Find earliest available server
   let earliestServer = 0;
   let earliestAvailable = serverEndTimes[0];
   for (let i = 1; i < servers; i++) {
@@ -79,6 +95,7 @@ function simulateStep() {
   const start = Math.max(arrivalTime, serverEndTimes[earliestServer]);
   const end = start + service;
   serverEndTimes[earliestServer] = end;
+  serverBusyTime[earliestServer] += service;
 
   customers.push({
     id,
@@ -128,12 +145,19 @@ function displaySummary() {
   const avgService = customers.reduce((a, b) => a + b.service, 0) / customers.length;
   const avgTAT = customers.reduce((a, b) => a + b.turnaround, 0) / customers.length;
 
+  let utilizationText = '<p><strong>Server Utilization:</strong></p>';
+  for (let i = 0; i < servers; i++) {
+    const util = (serverBusyTime[i] / totalTime) * 100;
+    utilizationText += `<p>Server ${i + 1}: ${util.toFixed(2)}%</p>`;
+  }
+
   document.getElementById('final-stats').innerHTML = `
     <p>Total Simulation Time: ${totalTime.toFixed(6)} minutes</p>
     <p>Total Customers: ${customers.length}</p>
     <p>Average Wait Time: ${avgWait.toFixed(6)} min</p>
     <p>Average Service Time: ${avgService.toFixed(6)} min</p>
     <p>Average Turnaround Time: ${avgTAT.toFixed(6)} min</p>
+    ${utilizationText}
   `;
   document.getElementById('summary').classList.remove('hidden');
 }
@@ -144,6 +168,7 @@ function startSimulation() {
   lambda = parseFloat(document.getElementById('lambda').value);
   mu = parseFloat(document.getElementById('mu').value);
   servers = parseInt(document.getElementById('servers').value);
+  modelType = document.getElementById('model').value;
 
   if (isNaN(lambda) || isNaN(mu) || isNaN(servers) || lambda <= 0 || mu <= 0 || servers <= 0) {
     alert("Enter valid positive values for λ, μ, and number of servers");
@@ -152,6 +177,7 @@ function startSimulation() {
 
   if (serverEndTimes.length === 0) {
     serverEndTimes = Array(servers).fill(0);
+    serverBusyTime = Array(servers).fill(0);
   }
 
   simulationRunning = true;
